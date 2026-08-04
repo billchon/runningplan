@@ -22,7 +22,7 @@ module.exports = {
       predictiveBackGestureEnabled: false,
     },
     web: {
-      output: 'static',
+      output: 'single',
       favicon: './assets/images/favicon.png',
     },
     plugins: [

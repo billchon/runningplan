@@ -7,12 +7,46 @@ import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { supabase } from '@/lib/supabase';
 
-// TODO: persist height_cm / weight_kg to USERS table (see PRD 10 ERD); decide skip policy (PRD 4.0 open issue).
+// TODO: decide skip policy (PRD 4.0 open issue) — currently blank fields just save as null.
 export default function BodyInfoScreen() {
   const theme = useTheme();
   const [heightCm, setHeightCm] = useState('');
   const [weightKg, setWeightKg] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    setError(null);
+    setIsSubmitting(true);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setIsSubmitting(false);
+      setError('로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        height_cm: heightCm ? Number(heightCm) : null,
+        weight_kg: weightKg ? Number(weightKg) : null,
+      })
+      .eq('id', user.id);
+
+    setIsSubmitting(false);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    router.replace('/(main)/home');
+  };
 
   return (
     <Screen title="신체 정보 입력">
@@ -37,7 +71,13 @@ export default function BodyInfoScreen() {
         style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }]}
       />
 
-      <Button label="완료" onPress={() => router.replace('/(main)/home')} />
+      {error && (
+        <ThemedText type="small" themeColor="text" style={styles.error}>
+          {error}
+        </ThemedText>
+      )}
+
+      <Button label={isSubmitting ? '저장 중...' : '완료'} onPress={handleSubmit} disabled={isSubmitting} />
     </Screen>
   );
 }
@@ -48,5 +88,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.three,
     fontSize: 16,
+  },
+  error: {
+    color: '#d64545',
   },
 });

@@ -1,6 +1,14 @@
 import { Redirect } from 'expo-router';
 
-// TODO: check persisted Supabase session and redirect to /(main)/home when logged in.
+import { useAuthStore } from '@/store/auth-store';
+
 export default function Index() {
-  return <Redirect href="/(auth)/login" />;
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const session = useAuthStore((state) => state.session);
+
+  if (isLoading) {
+    return null;
+  }
+
+  return <Redirect href={session ? '/(main)/home' : '/(auth)/login'} />;
 }
