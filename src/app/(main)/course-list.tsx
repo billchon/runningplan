@@ -75,7 +75,15 @@ export default function CourseListScreen() {
             평균 페이스 {formatPace(course.avgPace)}
             {course.avgRating != null ? ` · 평점 ${course.avgRating.toFixed(1)}` : ''}
           </ThemedText>
-          <Button label="시작" onPress={() => router.push('/(main)/run-tracking')} />
+          <Button
+            label="시작"
+            onPress={() =>
+              router.push({
+                pathname: '/(main)/run-tracking',
+                params: { courseId: course.id, courseName: course.name },
+              })
+            }
+          />
         </ThemedView>
       ))}
     </Screen>

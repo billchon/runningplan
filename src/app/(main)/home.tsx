@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -6,15 +7,39 @@ import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { supabase } from '@/lib/supabase';
 
-// TODO: replace mock course list / weekly summary with data from Supabase (COURSES, RUNS tables).
-const mockCourses = [
-  { id: 'free-run', name: '자유 러닝' },
-  { id: 'course-1', name: '한강 야경 코스' },
-  { id: 'course-2', name: '동네 언덕 코스' },
-];
+interface CoursePreview {
+  id: string;
+  name: string;
+}
 
+// TODO: replace the weekly summary with a real aggregate over RUNS once there's run history.
 export default function HomeScreen() {
+  const [courses, setCourses] = useState<CoursePreview[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from('courses')
+      .select('id, name')
+      .order('created_at', { ascending: false })
+      .limit(3)
+      .then(({ data }) => {
+        setCourses((data ?? []).map((row) => ({ id: row.id, name: row.name || '이름 없는 코스' })));
+      });
+  }, []);
+
+  const startRun = (course?: CoursePreview) => {
+    if (course) {
+      router.push({
+        pathname: '/(main)/run-tracking',
+        params: { courseId: course.id, courseName: course.name },
+      });
+    } else {
+      router.push('/(main)/run-tracking');
+    }
+  };
+
   return (
     <Screen title="홈">
       <Button label="나만의 러닝 코스 만들기" onPress={() => router.push('/(main)/course-builder')} />
@@ -38,10 +63,15 @@ export default function HomeScreen() {
           </ThemedText>
         </View>
 
-        {mockCourses.map((course) => (
+        <ThemedView type="backgroundElement" style={styles.courseRow}>
+          <ThemedText>자유 러닝</ThemedText>
+          <Button label="시작" onPress={() => startRun()} />
+        </ThemedView>
+
+        {courses.map((course) => (
           <ThemedView key={course.id} type="backgroundElement" style={styles.courseRow}>
             <ThemedText>{course.name}</ThemedText>
-            <Button label="시작" onPress={() => router.push('/(main)/run-tracking')} />
+            <Button label="시작" onPress={() => startRun(course)} />
           </ThemedView>
         ))}
       </View>

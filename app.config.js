@@ -45,6 +45,12 @@ module.exports = {
         },
       ],
       [
+        'expo-location',
+        {
+          locationWhenInUsePermission: '러닝 중 실시간 위치를 표시하기 위해 위치 정보가 필요합니다.',
+        },
+      ],
+      [
         'expo-build-properties',
         {
           android: {

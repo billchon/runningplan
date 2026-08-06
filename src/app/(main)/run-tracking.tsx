@@ -1,21 +1,157 @@
-import { router } from 'expo-router';
+import { NaverMapMarkerOverlay, NaverMapPolylineOverlay, NaverMapView } from '@mj-studio/react-native-naver-map';
+import * as Location from 'expo-location';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
-import { PlaceholderBox } from '@/components/placeholder-box';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
+import { Spacing } from '@/constants/theme';
+import { loadCoursePlan } from '@/lib/courses';
+import { haversineMeters, type Coord, type TimedCoord } from '@/lib/geo';
+import { useRunResultDraftStore } from '@/store/run-result-draft-store';
 
-// TODO: wire up expo-location background tracking + completion-rate calc vs planned course (see PRD 4.4, 7).
+const SEOUL_CITY_HALL: Coord = { latitude: 37.5665, longitude: 126.978 };
+
 export default function RunTrackingScreen() {
+  const { courseId, courseName } = useLocalSearchParams<{ courseId?: string; courseName?: string }>();
+  const setResultDraft = useRunResultDraftStore((state) => state.setDraft);
+
+  const [plannedPath, setPlannedPath] = useState<Coord[]>([]);
+  const [trackedPath, setTrackedPath] = useState<TimedCoord[]>([]);
+  const [distanceMeters, setDistanceMeters] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+
+  const subscriptionRef = useRef<Location.LocationSubscription | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Re-derive the planned road route from the course's saved waypoints, if a course was picked.
+  useEffect(() => {
+    if (!courseId) return;
+    loadCoursePlan(courseId)
+      .then((plan) => setPlannedPath(plan.path))
+      .catch(() => {});
+  }, [courseId]);
+
+  useEffect(() => {
+    let subscribed = true;
+
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (!subscribed) return;
+      if (status !== 'granted') {
+        setPermissionError('위치 권한이 필요합니다. 설정에서 위치 권한을 허용해주세요.');
+        return;
+      }
+
+      const subscription = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 5 },
+        (location) => {
+          const point: TimedCoord = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            timestamp: location.timestamp,
+          };
+          setTrackedPath((prev) => {
+            if (prev.length > 0) {
+              setDistanceMeters((d) => d + haversineMeters(prev[prev.length - 1], point));
+            }
+            return [...prev, point];
+          });
+        },
+      );
+      if (!subscribed) {
+        subscription.remove();
+        return;
+      }
+      subscriptionRef.current = subscription;
+      startTimeRef.current = Date.now();
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000));
+      }, 1000);
+    })();
+
+    return () => {
+      subscribed = false;
+      subscriptionRef.current?.remove();
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const handleEnd = () => {
+    subscriptionRef.current?.remove();
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    setResultDraft({
+      courseId: courseId ?? null,
+      trackedPath,
+      plannedPath,
+      distanceMeters,
+      durationSeconds: elapsedSeconds,
+    });
+    router.replace('/(main)/run-result');
+  };
+
+  const paceLabel =
+    distanceMeters > 0
+      ? `${(elapsedSeconds / 60 / (distanceMeters / 1000)).toFixed(1)}'/km`
+      : "--'--/km";
+  const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0');
+  const seconds = String(elapsedSeconds % 60).padStart(2, '0');
+
+  const mapCenter = trackedPath[trackedPath.length - 1] ?? plannedPath[0] ?? SEOUL_CITY_HALL;
+
   return (
-    <Screen title="러닝 중">
-      <PlaceholderBox label="실시간 위치 지도 (지도 SDK 연동 예정)" height={280} />
+    <Screen title={courseName ? `러닝 중 · ${courseName}` : '러닝 중 (자유 러닝)'}>
+      <View style={styles.mapWrapper}>
+        <NaverMapView style={styles.map} initialCamera={{ ...mapCenter, zoom: 16 }}>
+          {plannedPath.length > 1 && (
+            <NaverMapPolylineOverlay coords={plannedPath} color="#c0c0c0" width={4} />
+          )}
+          {trackedPath.length > 1 && (
+            <NaverMapPolylineOverlay coords={trackedPath} color="#3c87f7" width={5} />
+          )}
+          {trackedPath.length > 0 && (
+            <NaverMapMarkerOverlay
+              latitude={trackedPath[trackedPath.length - 1].latitude}
+              longitude={trackedPath[trackedPath.length - 1].longitude}
+              anchor={{ x: 0.5, y: 0.5 }}
+            />
+          )}
+        </NaverMapView>
+      </View>
 
-      <ThemedText>거리: -- km</ThemedText>
-      <ThemedText>페이스: --&apos;-- /km</ThemedText>
-      <ThemedText>계획 코스 대비 완주율: --%</ThemedText>
+      {permissionError && (
+        <ThemedText type="small" style={styles.error}>
+          {permissionError}
+        </ThemedText>
+      )}
 
-      <Button label="러닝 종료" onPress={() => router.replace('/(main)/run-result')} />
+      <ThemedText>거리: {(distanceMeters / 1000).toFixed(2)} km</ThemedText>
+      <ThemedText>
+        시간: {minutes}:{seconds}
+      </ThemedText>
+      <ThemedText>페이스: {paceLabel}</ThemedText>
+      {plannedPath.length > 0 && <ThemedText themeColor="textSecondary">계획된 코스를 따라가는 중</ThemedText>}
+
+      <Button label="러닝 종료" onPress={handleEnd} />
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  mapWrapper: {
+    height: 280,
+    borderRadius: Spacing.three,
+    overflow: 'hidden',
+  },
+  map: {
+    flex: 1,
+  },
+  error: {
+    color: '#d64545',
+  },
+});
