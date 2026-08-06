@@ -12,6 +12,7 @@ import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { fetchPedestrianRoute } from '@/lib/tmap';
+import { useCourseDraftStore } from '@/store/course-draft-store';
 
 interface Waypoint {
   latitude: number;
@@ -27,6 +28,7 @@ export default function CourseBuilderScreen() {
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const setDraft = useCourseDraftStore((state) => state.setDraft);
 
   useEffect(() => {
     if (waypoints.length < 2) {
@@ -120,7 +122,14 @@ export default function CourseBuilderScreen() {
           setError(null);
         }}
       />
-      <Button label="다음 (코스 정보 입력)" onPress={() => router.push('/(main)/course-info')} />
+      <Button
+        label="다음 (코스 정보 입력)"
+        disabled={!hasRoute || isLoading}
+        onPress={() => {
+          setDraft({ waypoints, path, distanceMeters, durationSeconds });
+          router.push('/(main)/course-info');
+        }}
+      />
     </Screen>
   );
 }

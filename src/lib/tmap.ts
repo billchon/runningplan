@@ -74,3 +74,38 @@ export async function fetchPedestrianRoute(waypoints: Coord[]): Promise<Pedestri
     durationSeconds: Number(summary.totalTime ?? 0),
   };
 }
+
+const TMAP_REVERSE_GEOCODING_URL = 'https://apis.openapi.sk.com/tmap/geo/reversegeocoding';
+
+// Best-effort: 행정동 + 주변 건물명 (see PRD 4.2). Returns null instead of throwing so a
+// geocoding hiccup never blocks saving the course itself.
+export async function reverseGeocode(point: Coord): Promise<string | null> {
+  const appKey = process.env.EXPO_PUBLIC_TMAP_APP_KEY;
+  if (!appKey) return null;
+
+  const params = new URLSearchParams({
+    version: '1',
+    lat: String(point.latitude),
+    lon: String(point.longitude),
+    coordType: 'WGS84GEO',
+    addressType: 'A10',
+  });
+
+  try {
+    const response = await fetch(`${TMAP_REVERSE_GEOCODING_URL}?${params.toString()}`, {
+      headers: { appKey, Accept: 'application/json' },
+    });
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const info = data.addressInfo;
+    if (!info) return null;
+
+    const dong = info.legalDong || info.adminDong || '';
+    const building = info.buildingName ? ` (${info.buildingName})` : '';
+    const label = `${[info.city_do, info.gu_gun, dong].filter(Boolean).join(' ')}${building}`.trim();
+    return label || null;
+  } catch {
+    return null;
+  }
+}
