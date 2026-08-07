@@ -10,6 +10,8 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { loadCoursePlan } from '@/lib/courses';
 import { haversineMeters, type Coord, type TimedCoord } from '@/lib/geo';
+import type { TurnPoint } from '@/lib/tmap';
+import { VoiceGuide } from '@/lib/voice-guidance';
 import { useRunResultDraftStore } from '@/store/run-result-draft-store';
 
 const SEOUL_CITY_HALL: Coord = { latitude: 37.5665, longitude: 126.978 };
@@ -19,6 +21,7 @@ export default function RunTrackingScreen() {
   const setResultDraft = useRunResultDraftStore((state) => state.setDraft);
 
   const [plannedPath, setPlannedPath] = useState<Coord[]>([]);
+  const [turnPoints, setTurnPoints] = useState<TurnPoint[]>([]);
   const [trackedPath, setTrackedPath] = useState<TimedCoord[]>([]);
   const [distanceMeters, setDistanceMeters] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -27,14 +30,28 @@ export default function RunTrackingScreen() {
   const subscriptionRef = useRef<Location.LocationSubscription | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const distanceRef = useRef(0);
+  const guideRef = useRef<VoiceGuide | null>(null);
 
   // Re-derive the planned road route from the course's saved waypoints, if a course was picked.
   useEffect(() => {
     if (!courseId) return;
     loadCoursePlan(courseId)
-      .then((plan) => setPlannedPath(plan.path))
+      .then((plan) => {
+        setPlannedPath(plan.path);
+        setTurnPoints(plan.turnPoints);
+      })
       .catch(() => {});
   }, [courseId]);
+
+  // Voice guide starts once we know the full picture: immediately for a free run (no course),
+  // or once the course's route + turn points have finished loading.
+  useEffect(() => {
+    if (courseId && plannedPath.length === 0) return;
+    if (guideRef.current) return;
+    guideRef.current = new VoiceGuide(turnPoints, plannedPath);
+    guideRef.current.start();
+  }, [courseId, plannedPath, turnPoints]);
 
   useEffect(() => {
     let subscribed = true;
@@ -55,12 +72,17 @@ export default function RunTrackingScreen() {
             longitude: location.coords.longitude,
             timestamp: location.timestamp,
           };
+
           setTrackedPath((prev) => {
             if (prev.length > 0) {
-              setDistanceMeters((d) => d + haversineMeters(prev[prev.length - 1], point));
+              distanceRef.current += haversineMeters(prev[prev.length - 1], point);
+              setDistanceMeters(distanceRef.current);
             }
             return [...prev, point];
           });
+
+          const elapsed = Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000);
+          guideRef.current?.update(point, distanceRef.current, elapsed);
         },
       );
       if (!subscribed) {
@@ -78,12 +100,14 @@ export default function RunTrackingScreen() {
       subscribed = false;
       subscriptionRef.current?.remove();
       if (timerRef.current) clearInterval(timerRef.current);
+      guideRef.current?.finish();
     };
   }, []);
 
   const handleEnd = () => {
     subscriptionRef.current?.remove();
     if (timerRef.current) clearInterval(timerRef.current);
+    guideRef.current?.finish();
 
     setResultDraft({
       courseId: courseId ?? null,

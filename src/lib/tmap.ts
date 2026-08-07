@@ -3,8 +3,13 @@ interface Coord {
   longitude: number;
 }
 
+export interface TurnPoint extends Coord {
+  description: string;
+}
+
 export interface PedestrianRoute {
   path: Coord[];
+  turnPoints: TurnPoint[];
   distanceMeters: number;
   durationSeconds: number;
 }
@@ -59,17 +64,24 @@ export async function fetchPedestrianRoute(waypoints: Coord[]): Promise<Pedestri
   const features: any[] = geoJson.features ?? [];
 
   const path: Coord[] = [];
+  const turnPoints: TurnPoint[] = [];
   for (const feature of features) {
     if (feature.geometry?.type === 'LineString') {
       for (const [longitude, latitude] of feature.geometry.coordinates) {
         path.push({ latitude, longitude });
       }
+    } else if (feature.geometry?.type === 'Point') {
+      const description: string | undefined = feature.properties?.description;
+      if (!description) continue;
+      const [longitude, latitude] = feature.geometry.coordinates;
+      turnPoints.push({ latitude, longitude, description });
     }
   }
 
   const summary = features[0]?.properties ?? {};
   return {
     path,
+    turnPoints,
     distanceMeters: Number(summary.totalDistance ?? 0),
     durationSeconds: Number(summary.totalTime ?? 0),
   };

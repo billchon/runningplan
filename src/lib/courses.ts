@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { fetchPedestrianRoute } from '@/lib/tmap';
+import { fetchPedestrianRoute, type TurnPoint } from '@/lib/tmap';
 
 interface Coord {
   latitude: number;
@@ -9,6 +9,7 @@ interface Coord {
 export interface CoursePlan {
   waypoints: Coord[];
   path: Coord[];
+  turnPoints: TurnPoint[];
   distanceMeters: number;
 }
 
@@ -29,9 +30,9 @@ export async function loadCoursePlan(courseId: string): Promise<CoursePlan> {
   }));
 
   if (waypoints.length < 2) {
-    return { waypoints, path: [], distanceMeters: 0 };
+    return { waypoints, path: [], turnPoints: [], distanceMeters: 0 };
   }
 
   const route = await fetchPedestrianRoute(waypoints);
-  return { waypoints, path: route.path, distanceMeters: route.distanceMeters };
+  return { waypoints, path: route.path, turnPoints: route.turnPoints, distanceMeters: route.distanceMeters };
 }
