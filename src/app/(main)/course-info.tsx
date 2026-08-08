@@ -10,21 +10,13 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { loadCoursePlan } from '@/lib/courses';
 import type { Coord } from '@/lib/geo';
-import { splitPathByDistance } from '@/lib/geo';
+import { isCircular, splitPathByDistance } from '@/lib/geo';
 import { fetchSafetyConvenienceInfo, type SafetyPoi } from '@/lib/osm-poi';
 import { supabase } from '@/lib/supabase';
 import { reverseGeocode } from '@/lib/tmap';
 import { useCourseDraftStore } from '@/store/course-draft-store';
 
 const KM_SEGMENT_COLORS = ['#3c87f7', '#8fb8f6'];
-
-// A course is "circular" if its start and end are within ~30m of each other.
-function isCircular(start: { latitude: number; longitude: number }, end: { latitude: number; longitude: number }) {
-  const dLat = start.latitude - end.latitude;
-  const dLng = start.longitude - end.longitude;
-  const roughMeters = Math.sqrt(dLat ** 2 + dLng ** 2) * 111_000;
-  return roughMeters < 30;
-}
 
 export default function CourseInfoScreen() {
   const theme = useTheme();

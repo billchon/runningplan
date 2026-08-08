@@ -30,17 +30,29 @@ function startOfWeek(): Date {
 }
 
 export default function HomeScreen() {
-  const [courses, setCourses] = useState<CoursePreview[]>([]);
+  const [myCourses, setMyCourses] = useState<CoursePreview[]>([]);
+  const [favoriteCourses, setFavoriteCourses] = useState<CoursePreview[]>([]);
   const [summary, setSummary] = useState<WeeklySummary | null>(null);
 
   useEffect(() => {
     supabase
       .from('courses')
       .select('id, name')
+      .eq('source', 'builder')
       .order('created_at', { ascending: false })
       .limit(3)
       .then(({ data }) => {
-        setCourses((data ?? []).map((row) => ({ id: row.id, name: row.name || '이름 없는 코스' })));
+        setMyCourses((data ?? []).map((row) => ({ id: row.id, name: row.name || '이름 없는 코스' })));
+      });
+
+    supabase
+      .from('courses')
+      .select('id, name')
+      .eq('is_favorite', true)
+      .order('created_at', { ascending: false })
+      .limit(3)
+      .then(({ data }) => {
+        setFavoriteCourses((data ?? []).map((row) => ({ id: row.id, name: row.name || '이름 없는 코스' })));
       });
 
     const weekStartIso = startOfWeek().toISOString();
@@ -103,7 +115,30 @@ export default function HomeScreen() {
           <Button label="시작" onPress={() => startRun()} />
         </ThemedView>
 
-        {courses.map((course) => (
+        <ThemedText type="small" themeColor="textSecondary">
+          내가 만든 코스
+        </ThemedText>
+        {myCourses.length === 0 && (
+          <ThemedText type="small" themeColor="textSecondary">
+            아직 만든 코스가 없습니다.
+          </ThemedText>
+        )}
+        {myCourses.map((course) => (
+          <ThemedView key={course.id} type="backgroundElement" style={styles.courseRow}>
+            <ThemedText>{course.name}</ThemedText>
+            <Button label="시작" onPress={() => startRun(course)} />
+          </ThemedView>
+        ))}
+
+        <ThemedText type="small" themeColor="textSecondary">
+          즐겨찾기 코스
+        </ThemedText>
+        {favoriteCourses.length === 0 && (
+          <ThemedText type="small" themeColor="textSecondary">
+            아직 즐겨찾기한 코스가 없습니다. 러닝을 마친 뒤 결과 화면에서 즐겨찾기해보세요.
+          </ThemedText>
+        )}
+        {favoriteCourses.map((course) => (
           <ThemedView key={course.id} type="backgroundElement" style={styles.courseRow}>
             <ThemedText>{course.name}</ThemedText>
             <Button label="시작" onPress={() => startRun(course)} />
@@ -111,6 +146,11 @@ export default function HomeScreen() {
         ))}
       </View>
 
+      <Button
+        label="러닝 히스토리 보기"
+        variant="secondary"
+        onPress={() => router.push('/(main)/run-history')}
+      />
       <Button
         label="성장 리포트 보기"
         variant="secondary"

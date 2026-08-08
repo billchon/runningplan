@@ -49,3 +49,29 @@ export function splitPathByDistance(path: Coord[], segmentMeters = 1000): Coord[
 
   return segments;
 }
+
+// A path is "circular" if its start and end are within ~30m of each other.
+export function isCircular(start: Coord, end: Coord): boolean {
+  return haversineMeters(start, end) < 30;
+}
+
+// Thins a dense GPS trace down to a small set of waypoints suitable for Tmap's pedestrian
+// routing API (which expects a handful of via-points, not hundreds of raw fixes) - used when
+// favoriting a free run turns its tracked path into a re-runnable course (see PRD 4.4).
+export function downsamplePath(path: Coord[], minSpacingMeters = 150, maxPoints = 10): Coord[] {
+  if (path.length <= 2) return path;
+
+  const picked: Coord[] = [path[0]];
+  let sinceLastPick = 0;
+
+  for (let i = 1; i < path.length - 1; i++) {
+    sinceLastPick += haversineMeters(path[i - 1], path[i]);
+    if (sinceLastPick >= minSpacingMeters && picked.length < maxPoints - 1) {
+      picked.push(path[i]);
+      sinceLastPick = 0;
+    }
+  }
+
+  picked.push(path[path.length - 1]);
+  return picked;
+}
