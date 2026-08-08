@@ -26,3 +26,26 @@ export function pathDistanceMeters(path: Coord[]): number {
   }
   return total;
 }
+
+// Slices a path into consecutive ~segmentMeters chunks, purely by distance (no timing) - used
+// to show 1km markers on a planned route before it's been run (see PRD 4.2).
+export function splitPathByDistance(path: Coord[], segmentMeters = 1000): Coord[][] {
+  if (path.length < 2) return [];
+
+  const segments: Coord[][] = [];
+  let current: Coord[] = [path[0]];
+  let segDistance = 0;
+
+  for (let i = 1; i < path.length; i++) {
+    segDistance += haversineMeters(path[i - 1], path[i]);
+    current.push(path[i]);
+    if (segDistance >= segmentMeters) {
+      segments.push(current);
+      current = [path[i]];
+      segDistance = 0;
+    }
+  }
+  if (current.length > 1) segments.push(current);
+
+  return segments;
+}

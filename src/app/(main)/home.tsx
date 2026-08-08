@@ -14,9 +14,24 @@ interface CoursePreview {
   name: string;
 }
 
-// TODO: replace the weekly summary with a real aggregate over RUNS once there's run history.
+interface WeeklySummary {
+  runCount: number;
+  totalDistanceMeters: number;
+  newCourseCount: number;
+}
+
+// Monday 00:00 local time of the current week.
+function startOfWeek(): Date {
+  const now = new Date();
+  const day = now.getDay();
+  const diffToMonday = day === 0 ? 6 : day - 1;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+  return start;
+}
+
 export default function HomeScreen() {
   const [courses, setCourses] = useState<CoursePreview[]>([]);
+  const [summary, setSummary] = useState<WeeklySummary | null>(null);
 
   useEffect(() => {
     supabase
@@ -27,7 +42,27 @@ export default function HomeScreen() {
       .then(({ data }) => {
         setCourses((data ?? []).map((row) => ({ id: row.id, name: row.name || '이름 없는 코스' })));
       });
+
+    const weekStartIso = startOfWeek().toISOString();
+    Promise.all([
+      supabase.from('runs').select('distance_m').gte('created_at', weekStartIso),
+      supabase
+        .from('courses')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', weekStartIso),
+    ]).then(([runsResult, coursesResult]) => {
+      const runs = runsResult.data ?? [];
+      setSummary({
+        runCount: runs.length,
+        totalDistanceMeters: runs.reduce((sum, run) => sum + (run.distance_m ?? 0), 0),
+        newCourseCount: coursesResult.count ?? 0,
+      });
+    });
   }, []);
+
+  const summaryLabel = summary
+    ? `러닝 ${summary.runCount}회 · ${(summary.totalDistanceMeters / 1000).toFixed(1)}km · 신규 코스 ${summary.newCourseCount}개`
+    : '불러오는 중...';
 
   const startRun = (course?: CoursePreview) => {
     if (course) {
@@ -49,7 +84,7 @@ export default function HomeScreen() {
           이번 주 요약
         </ThemedText>
         <ThemedView type="backgroundElement" style={styles.summaryRow}>
-          <ThemedText>러닝 3회 · 12.4km · 신규 코스 1개</ThemedText>
+          <ThemedText>{summaryLabel}</ThemedText>
         </ThemedView>
       </View>
 

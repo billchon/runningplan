@@ -28,6 +28,7 @@ export default function CourseBuilderScreen() {
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const setDraft = useCourseDraftStore((state) => state.setDraft);
 
   useEffect(() => {
@@ -61,6 +62,30 @@ export default function CourseBuilderScreen() {
     };
   }, [waypoints]);
 
+  // Tapping an existing waypoint selects it (for move/delete); tapping the map either moves
+  // the selected waypoint there, or - with nothing selected - adds a new one. The SDK's
+  // marker overlay has no drag support, so tap-to-select-then-tap-to-move is the substitute.
+  const handleMapTap = ({ latitude, longitude }: Waypoint) => {
+    if (selectedIndex != null) {
+      setWaypoints((prev) =>
+        prev.map((point, index) => (index === selectedIndex ? { latitude, longitude } : point)),
+      );
+      setSelectedIndex(null);
+      return;
+    }
+    setWaypoints((prev) => [...prev, { latitude, longitude }]);
+  };
+
+  const handleMarkerTap = (index: number) => {
+    setSelectedIndex((prev) => (prev === index ? null : index));
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIndex == null) return;
+    setWaypoints((prev) => prev.filter((_, index) => index !== selectedIndex));
+    setSelectedIndex(null);
+  };
+
   const hasRoute = waypoints.length >= 2;
   const distanceLabel =
     hasRoute && distanceMeters != null ? `${(distanceMeters / 1000).toFixed(1)} km` : '--';
@@ -70,16 +95,16 @@ export default function CourseBuilderScreen() {
   return (
     <Screen title="코스 빌더">
       <ThemedText themeColor="textSecondary">
-        지도에서 시작점 · 경유지 · 도착점을 탭해 경로를 만드세요.
+        {selectedIndex != null
+          ? '지도를 탭해 선택한 경유지를 이동하세요.'
+          : '지도에서 시작점 · 경유지 · 도착점을 탭해 경로를 만드세요. 경유지를 탭하면 이동·삭제할 수 있습니다.'}
       </ThemedText>
 
       <View style={styles.mapWrapper}>
         <NaverMapView
           style={styles.map}
           initialCamera={{ ...SEOUL_CITY_HALL, zoom: 15 }}
-          onTapMap={({ latitude, longitude }) =>
-            setWaypoints((prev) => [...prev, { latitude, longitude }])
-          }
+          onTapMap={handleMapTap}
         >
           {hasRoute && path.length > 1 && (
             <NaverMapPolylineOverlay coords={path} color="#3c87f7" width={5} />
@@ -91,6 +116,8 @@ export default function CourseBuilderScreen() {
               longitude={point.longitude}
               anchor={{ x: 0.5, y: 1 }}
               caption={{ text: `${index + 1}` }}
+              image={{ symbol: selectedIndex === index ? 'red' : 'green' }}
+              onTap={() => handleMarkerTap(index)}
             />
           ))}
         </NaverMapView>
@@ -99,6 +126,10 @@ export default function CourseBuilderScreen() {
       <ThemedText type="small" themeColor="textSecondary">
         경유지 {waypoints.length}개 지정됨
       </ThemedText>
+
+      {selectedIndex != null && (
+        <Button label={`경유지 ${selectedIndex + 1} 삭제`} variant="secondary" onPress={handleDeleteSelected} />
+      )}
 
       {error && (
         <ThemedText type="small" style={styles.error}>
@@ -120,6 +151,7 @@ export default function CourseBuilderScreen() {
           setDistanceMeters(null);
           setDurationSeconds(null);
           setError(null);
+          setSelectedIndex(null);
         }}
       />
       <Button

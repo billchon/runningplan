@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Screen } from '@/components/screen';
@@ -58,6 +58,10 @@ export default function CourseListScreen() {
 
   return (
     <Screen title="코스 목록">
+      <ThemedText type="linkPrimary" onPress={() => router.push('/(main)/run-history')}>
+        러닝 기록 보기
+      </ThemedText>
+
       {isLoading && <ThemedText themeColor="textSecondary">불러오는 중...</ThemedText>}
       {error && (
         <ThemedText type="small" style={styles.error}>
@@ -70,11 +74,18 @@ export default function CourseListScreen() {
 
       {courses.map((course) => (
         <ThemedView key={course.id} type="backgroundElement" style={styles.row}>
-          <ThemedText>{course.name}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            평균 페이스 {formatPace(course.avgPace)}
-            {course.avgRating != null ? ` · 평점 ${course.avgRating.toFixed(1)}` : ''}
-          </ThemedText>
+          <Pressable
+            onPress={() =>
+              router.push({ pathname: '/(main)/course-info', params: { courseId: course.id } })
+            }
+          >
+            <ThemedText>{course.name}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              평균 페이스 {formatPace(course.avgPace)}
+              {course.avgRating != null ? ` · 평점 ${course.avgRating.toFixed(1)}` : ''}
+            </ThemedText>
+            <ThemedText type="linkPrimary">수정</ThemedText>
+          </Pressable>
           <Button
             label="시작"
             onPress={() =>

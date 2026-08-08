@@ -1,6 +1,6 @@
 import { NaverMapMarkerOverlay, NaverMapPolylineOverlay, NaverMapView } from '@mj-studio/react-native-naver-map';
-import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -8,6 +8,9 @@ import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { loadCoursePlan } from '@/lib/courses';
+import type { Coord } from '@/lib/geo';
+import { splitPathByDistance } from '@/lib/geo';
 import { fetchSafetyConvenienceInfo, type SafetyPoi } from '@/lib/osm-poi';
 import { supabase } from '@/lib/supabase';
 import { reverseGeocode } from '@/lib/tmap';
@@ -15,6 +18,8 @@ import { useCourseDraftStore } from '@/store/course-draft-store';
 
 const ratingCategories = ['경관', '안전', '평탄'] as const;
 type RatingCategory = (typeof ratingCategories)[number];
+
+const KM_SEGMENT_COLORS = ['#3c87f7', '#8fb8f6'];
 
 // A course is "circular" if its start and end are within ~30m of each other.
 function isCircular(start: { latitude: number; longitude: number }, end: { latitude: number; longitude: number }) {
@@ -26,7 +31,9 @@ function isCircular(start: { latitude: number; longitude: number }, end: { latit
 
 export default function CourseInfoScreen() {
   const theme = useTheme();
-  const { waypoints, path, distanceMeters, durationSeconds, reset } = useCourseDraftStore();
+  const { courseId: routeCourseId } = useLocalSearchParams<{ courseId?: string }>();
+  const isEditMode = !!routeCourseId;
+  const draft = useCourseDraftStore();
 
   const [courseId, setCourseId] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -45,9 +52,64 @@ export default function CourseInfoScreen() {
   const [safetyLoading, setSafetyLoading] = useState(false);
   const [safetyError, setSafetyError] = useState<string | null>(null);
 
+  // Edit-mode-only: course data loaded from Supabase for an existing course, as opposed to
+  // a freshly-drafted one handed off from course-builder via the store.
+  const [loadedWaypoints, setLoadedWaypoints] = useState<Coord[]>([]);
+  const [loadedPath, setLoadedPath] = useState<Coord[]>([]);
+  const [loadedDistanceMeters, setLoadedDistanceMeters] = useState<number | null>(null);
+  const [loadedAvgPace, setLoadedAvgPace] = useState<number | null>(null);
+  const [isEditLoading, setIsEditLoading] = useState(isEditMode);
+
+  const waypoints = isEditMode ? loadedWaypoints : draft.waypoints;
+  const path = isEditMode ? loadedPath : draft.path;
+  const distanceMeters = isEditMode ? loadedDistanceMeters : draft.distanceMeters;
+  const kmSegments = useMemo(() => splitPathByDistance(path), [path]);
+
+  // Edit mode: load an existing course's saved data instead of creating a new one.
+  useEffect(() => {
+    if (!isEditMode || !routeCourseId) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const [{ data: course }, plan, { data: ratingRows }, { data: tagRows }] = await Promise.all([
+        supabase.from('courses').select('name, memo, avg_pace').eq('id', routeCourseId).single(),
+        loadCoursePlan(routeCourseId),
+        supabase.from('course_ratings').select('category, score').eq('course_id', routeCourseId),
+        supabase.from('course_location_tags').select('tag_type, region_name').eq('course_id', routeCourseId),
+      ]);
+      if (cancelled) return;
+
+      setCourseId(routeCourseId);
+      setName(course?.name ?? '');
+      setMemo(course?.memo ?? '');
+      setLoadedAvgPace(course?.avg_pace ?? null);
+      setLoadedWaypoints(plan.waypoints);
+      setLoadedPath(plan.path);
+      setLoadedDistanceMeters(plan.distanceMeters);
+
+      const nextRatings: Record<RatingCategory, number> = { 경관: 0, 안전: 0, 평탄: 0 };
+      for (const row of ratingRows ?? []) {
+        if (row.category in nextRatings) nextRatings[row.category as RatingCategory] = row.score;
+      }
+      setRatings(nextRatings);
+
+      const startTag = tagRows?.find((t) => t.tag_type === 'start')?.region_name;
+      const finishTag = tagRows?.find((t) => t.tag_type === 'finish')?.region_name;
+      setLocationLabel(
+        finishTag ? `${startTag} → ${finishTag}` : startTag ? `${startTag} · 순환` : '위치 태그 없음',
+      );
+      setIsEditLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, routeCourseId]);
+
   // Create the course row (+ waypoints) once, from whatever course-builder handed off.
   useEffect(() => {
-    if (waypoints.length < 2) return;
+    if (isEditMode || draft.waypoints.length < 2) return;
 
     let cancelled = false;
 
@@ -63,7 +125,9 @@ export default function CourseInfoScreen() {
       const start = waypoints[0];
       const end = waypoints[waypoints.length - 1];
       const avgPace =
-        distanceMeters && durationSeconds ? durationSeconds / 60 / (distanceMeters / 1000) : null;
+        distanceMeters && draft.durationSeconds
+          ? draft.durationSeconds / 60 / (distanceMeters / 1000)
+          : null;
 
       const { data: course, error: insertError } = await supabase
         .from('courses')
@@ -166,10 +230,20 @@ export default function CourseInfoScreen() {
     }
   };
 
-  const avgPaceLabel =
-    distanceMeters && durationSeconds
-      ? `${(durationSeconds / 60 / (distanceMeters / 1000)).toFixed(1)}'/km`
-      : "--'-- /km";
+  const avgPaceMinPerKm = isEditMode
+    ? loadedAvgPace
+    : distanceMeters && draft.durationSeconds
+      ? draft.durationSeconds / 60 / (distanceMeters / 1000)
+      : null;
+  const avgPaceLabel = avgPaceMinPerKm != null ? `${avgPaceMinPerKm.toFixed(1)}'/km` : "--'-- /km";
+
+  if (isEditMode && isEditLoading) {
+    return (
+      <Screen title="코스 정보">
+        <ThemedText themeColor="textSecondary">불러오는 중...</ThemedText>
+      </Screen>
+    );
+  }
 
   if (waypoints.length < 2) {
     return (
@@ -193,7 +267,25 @@ export default function CourseInfoScreen() {
           isScrollGesturesEnabled={false}
           isZoomGesturesEnabled={false}
         >
-          {path.length > 1 && <NaverMapPolylineOverlay coords={path} color="#3c87f7" width={5} />}
+          {kmSegments.map((segment, index) => (
+            <NaverMapPolylineOverlay
+              key={index}
+              coords={segment}
+              color={KM_SEGMENT_COLORS[index % KM_SEGMENT_COLORS.length]}
+              width={5}
+            />
+          ))}
+          {kmSegments.slice(0, -1).map((segment, index) => (
+            <NaverMapMarkerOverlay
+              key={`km-${index}`}
+              latitude={segment[segment.length - 1].latitude}
+              longitude={segment[segment.length - 1].longitude}
+              width={18}
+              height={18}
+              image={{ symbol: 'gray' }}
+              caption={{ text: `${index + 1}km`, textSize: 10 }}
+            />
+          ))}
           {waypoints.map((point, index) => (
             <NaverMapMarkerOverlay
               key={`${point.latitude}-${point.longitude}-${index}`}
@@ -292,7 +384,7 @@ export default function CourseInfoScreen() {
           if (courseId) {
             await supabase.from('courses').update({ name, memo }).eq('id', courseId);
           }
-          reset();
+          if (!isEditMode) draft.reset();
           router.replace('/(main)/course-list');
         }}
       />
