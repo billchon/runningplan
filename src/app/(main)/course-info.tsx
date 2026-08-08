@@ -8,6 +8,7 @@ import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { fetchSafetyConvenienceInfo, type SafetyPoi } from '@/lib/osm-poi';
 import { supabase } from '@/lib/supabase';
 import { reverseGeocode } from '@/lib/tmap';
 import { useCourseDraftStore } from '@/store/course-draft-store';
@@ -38,6 +39,11 @@ export default function CourseInfoScreen() {
   const [locationLabel, setLocationLabel] = useState('위치 태그 확인 중...');
   const [error, setError] = useState<string | null>(null);
   const isFirstRender = useRef(true);
+
+  const [showSafetyLayer, setShowSafetyLayer] = useState(false);
+  const [safetyPois, setSafetyPois] = useState<SafetyPoi[] | null>(null);
+  const [safetyLoading, setSafetyLoading] = useState(false);
+  const [safetyError, setSafetyError] = useState<string | null>(null);
 
   // Create the course row (+ waypoints) once, from whatever course-builder handed off.
   useEffect(() => {
@@ -140,6 +146,26 @@ export default function CourseInfoScreen() {
       .upsert({ course_id: courseId, category, score }, { onConflict: 'course_id,category' });
   };
 
+  const handleToggleSafetyLayer = async () => {
+    if (showSafetyLayer) {
+      setShowSafetyLayer(false);
+      return;
+    }
+    setShowSafetyLayer(true);
+    if (safetyPois || safetyLoading) return;
+
+    setSafetyLoading(true);
+    setSafetyError(null);
+    try {
+      const pois = await fetchSafetyConvenienceInfo(path);
+      setSafetyPois(pois);
+    } catch (e) {
+      setSafetyError(e instanceof Error ? e.message : '안전·편의정보를 불러오지 못했습니다.');
+    } finally {
+      setSafetyLoading(false);
+    }
+  };
+
   const avgPaceLabel =
     distanceMeters && durationSeconds
       ? `${(durationSeconds / 60 / (distanceMeters / 1000)).toFixed(1)}'/km`
@@ -177,8 +203,40 @@ export default function CourseInfoScreen() {
               caption={{ text: `${index + 1}` }}
             />
           ))}
+          {showSafetyLayer &&
+            safetyPois?.map((poi) => (
+              <NaverMapMarkerOverlay
+                key={poi.id}
+                latitude={poi.latitude}
+                longitude={poi.longitude}
+                width={20}
+                height={20}
+                caption={{
+                  text: poi.kind === 'bus_stop' ? '🚌' : poi.hasSignal ? '🚦' : '🚸',
+                  textSize: 14,
+                  align: 'Center',
+                }}
+              />
+            ))}
         </NaverMapView>
       </View>
+
+      <Pressable onPress={handleToggleSafetyLayer}>
+        <ThemedText type="small">
+          {showSafetyLayer ? '안전·편의 정보 숨기기' : '안전·편의 정보 보기 (버스정류소 · 횡단보도)'}
+        </ThemedText>
+      </Pressable>
+      {safetyLoading && (
+        <ThemedText type="small" themeColor="textSecondary">
+          주변 정보를 불러오는 중...
+        </ThemedText>
+      )}
+      {safetyError && (
+        <ThemedText type="small" style={styles.error}>
+          {safetyError}
+        </ThemedText>
+      )}
+
       <ThemedText>평균 페이스: {avgPaceLabel}</ThemedText>
 
       <TextInput
