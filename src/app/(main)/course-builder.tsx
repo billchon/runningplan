@@ -2,16 +2,20 @@ import {
   NaverMapMarkerOverlay,
   NaverMapPolylineOverlay,
   NaverMapView,
+  type NaverMapViewRef,
 } from '@mj-studio/react-native-naver-map';
+import * as Location from 'expo-location';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { fetchPedestrianRoute } from '@/lib/tmap';
+import { useTheme } from '@/hooks/use-theme';
+import { fetchPedestrianRoute, searchPlaces, type PlaceSearchResult } from '@/lib/tmap';
 import { useCourseDraftStore } from '@/store/course-draft-store';
 
 interface Waypoint {
@@ -22,6 +26,7 @@ interface Waypoint {
 const SEOUL_CITY_HALL: Waypoint = { latitude: 37.5665, longitude: 126.978 };
 
 export default function CourseBuilderScreen() {
+  const theme = useTheme();
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [path, setPath] = useState<Waypoint[]>([]);
   const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
@@ -29,7 +34,36 @@ export default function CourseBuilderScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const setDraft = useCourseDraftStore((state) => state.setDraft);
+  const mapRef = useRef<NaverMapViewRef>(null);
+
+  // Center the map on the user's current location once it's available, rather than always
+  // opening on a hardcoded Seoul City Hall default.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted' || cancelled) return;
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      if (cancelled) return;
+
+      mapRef.current?.animateCameraTo({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        zoom: 15,
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (waypoints.length < 2) {
@@ -86,6 +120,29 @@ export default function CourseBuilderScreen() {
     setSelectedIndex(null);
   };
 
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    setSearchError(null);
+    try {
+      const results = await searchPlaces(searchQuery);
+      setSearchResults(results);
+      if (results.length === 0) {
+        setSearchError('검색 결과가 없습니다.');
+      }
+    } catch (e) {
+      setSearchError(e instanceof Error ? e.message : '장소를 검색하지 못했습니다.');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectSearchResult = (result: PlaceSearchResult) => {
+    mapRef.current?.animateCameraTo({ latitude: result.latitude, longitude: result.longitude, zoom: 16 });
+    setSearchResults([]);
+    setSearchQuery('');
+  };
+
   const hasRoute = waypoints.length >= 2;
   const distanceLabel =
     hasRoute && distanceMeters != null ? `${(distanceMeters / 1000).toFixed(1)} km` : '--';
@@ -100,8 +157,43 @@ export default function CourseBuilderScreen() {
           : '지도에서 시작점 · 경유지 · 도착점을 탭해 경로를 만드세요. 경유지를 탭하면 이동·삭제할 수 있습니다.'}
       </ThemedText>
 
+      <View style={styles.searchRow}>
+        <TextInput
+          placeholder="장소 검색 (예: 강남역, 한강공원)"
+          placeholderTextColor={theme.textSecondary}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onSubmitEditing={handleSearch}
+          returnKeyType="search"
+          style={[styles.searchInput, { color: theme.text, backgroundColor: theme.backgroundElement }]}
+        />
+        <Button label="검색" onPress={handleSearch} disabled={isSearching} />
+      </View>
+
+      {searchError && (
+        <ThemedText type="small" style={styles.error}>
+          {searchError}
+        </ThemedText>
+      )}
+
+      {searchResults.length > 0 && (
+        <View style={styles.searchResults}>
+          {searchResults.map((result) => (
+            <Pressable key={result.id} onPress={() => handleSelectSearchResult(result)}>
+              <ThemedView type="backgroundElement" style={styles.searchResultRow}>
+                <ThemedText type="smallBold">{result.name}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {result.address}
+                </ThemedText>
+              </ThemedView>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       <View style={styles.mapWrapper}>
         <NaverMapView
+          ref={mapRef}
           style={styles.map}
           initialCamera={{ ...SEOUL_CITY_HALL, zoom: 15 }}
           onTapMap={handleMapTap}
@@ -177,5 +269,25 @@ const styles = StyleSheet.create({
   },
   error: {
     color: '#d64545',
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    alignItems: 'center',
+  },
+  searchInput: {
+    flex: 1,
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    fontSize: 16,
+  },
+  searchResults: {
+    gap: Spacing.one,
+  },
+  searchResultRow: {
+    borderRadius: Spacing.two,
+    padding: Spacing.two,
+    gap: 2,
   },
 });

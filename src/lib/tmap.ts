@@ -87,6 +87,57 @@ export async function fetchPedestrianRoute(waypoints: Coord[]): Promise<Pedestri
   };
 }
 
+export interface PlaceSearchResult {
+  id: string;
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
+const TMAP_POI_SEARCH_URL = 'https://apis.openapi.sk.com/tmap/pois';
+
+// 장소 통합 검색 (시설물명/상호/주소/전화번호) - used to jump the course-builder map to a
+// searched location instead of only panning/zooming manually (see PRD 4.2).
+export async function searchPlaces(keyword: string): Promise<PlaceSearchResult[]> {
+  const appKey = process.env.EXPO_PUBLIC_TMAP_APP_KEY;
+  if (!appKey) {
+    throw new Error('TMAP_APP_KEY가 설정되지 않았습니다. .env를 확인해주세요.');
+  }
+  if (!keyword.trim()) return [];
+
+  const params = new URLSearchParams({
+    version: '1',
+    searchKeyword: keyword,
+    searchType: 'all',
+    page: '1',
+    count: '10',
+    resCoordType: 'WGS84GEO',
+    reqCoordType: 'WGS84GEO',
+    multiPoint: 'N',
+    searchtypCd: 'A',
+    poiGroupYn: 'N',
+  });
+
+  const response = await fetch(`${TMAP_POI_SEARCH_URL}?${params.toString()}`, {
+    headers: { appKey, Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`장소 검색 실패 (${response.status})`);
+  }
+
+  const data = await response.json();
+  const pois: any[] = data.searchPoiInfo?.pois?.poi ?? [];
+
+  return pois.map((poi) => ({
+    id: poi.pkey ?? poi.id,
+    name: poi.name,
+    address: [poi.upperAddrName, poi.middleAddrName, poi.lowerAddrName].filter(Boolean).join(' '),
+    latitude: Number(poi.noorLat),
+    longitude: Number(poi.noorLon),
+  }));
+}
+
 const TMAP_REVERSE_GEOCODING_URL = 'https://apis.openapi.sk.com/tmap/geo/reversegeocoding';
 
 // Best-effort: 행정동 + 주변 건물명 (see PRD 4.2). Returns null instead of throwing so a
