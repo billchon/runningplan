@@ -16,9 +16,6 @@ import { supabase } from '@/lib/supabase';
 import { reverseGeocode } from '@/lib/tmap';
 import { useCourseDraftStore } from '@/store/course-draft-store';
 
-const ratingCategories = ['경관', '안전', '평탄'] as const;
-type RatingCategory = (typeof ratingCategories)[number];
-
 const KM_SEGMENT_COLORS = ['#3c87f7', '#8fb8f6'];
 
 // A course is "circular" if its start and end are within ~30m of each other.
@@ -38,11 +35,6 @@ export default function CourseInfoScreen() {
   const [courseId, setCourseId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [memo, setMemo] = useState('');
-  const [ratings, setRatings] = useState<Record<RatingCategory, number>>({
-    경관: 0,
-    안전: 0,
-    평탄: 0,
-  });
   const [locationLabel, setLocationLabel] = useState('위치 태그 확인 중...');
   const [error, setError] = useState<string | null>(null);
   const isFirstRender = useRef(true);
@@ -72,10 +64,9 @@ export default function CourseInfoScreen() {
     let cancelled = false;
 
     (async () => {
-      const [{ data: course }, plan, { data: ratingRows }, { data: tagRows }] = await Promise.all([
+      const [{ data: course }, plan, { data: tagRows }] = await Promise.all([
         supabase.from('courses').select('name, memo, avg_pace').eq('id', routeCourseId).single(),
         loadCoursePlan(routeCourseId),
-        supabase.from('course_ratings').select('category, score').eq('course_id', routeCourseId),
         supabase.from('course_location_tags').select('tag_type, region_name').eq('course_id', routeCourseId),
       ]);
       if (cancelled) return;
@@ -87,12 +78,6 @@ export default function CourseInfoScreen() {
       setLoadedWaypoints(plan.waypoints);
       setLoadedPath(plan.path);
       setLoadedDistanceMeters(plan.distanceMeters);
-
-      const nextRatings: Record<RatingCategory, number> = { 경관: 0, 안전: 0, 평탄: 0 };
-      for (const row of ratingRows ?? []) {
-        if (row.category in nextRatings) nextRatings[row.category as RatingCategory] = row.score;
-      }
-      setRatings(nextRatings);
 
       const startTag = tagRows?.find((t) => t.tag_type === 'start')?.region_name;
       const finishTag = tagRows?.find((t) => t.tag_type === 'finish')?.region_name;
@@ -201,14 +186,6 @@ export default function CourseInfoScreen() {
 
     return () => clearTimeout(timeout);
   }, [name, memo, courseId]);
-
-  const handleRate = async (category: RatingCategory, score: number) => {
-    setRatings((prev) => ({ ...prev, [category]: score }));
-    if (!courseId) return;
-    await supabase
-      .from('course_ratings')
-      .upsert({ course_id: courseId, category, score }, { onConflict: 'course_id,category' });
-  };
 
   const handleToggleSafetyLayer = async () => {
     if (showSafetyLayer) {
@@ -357,23 +334,8 @@ export default function CourseInfoScreen() {
         </ThemedText>
       )}
 
-      <View style={styles.ratingRow}>
-        {ratingCategories.map((category) => (
-          <View key={category} style={styles.ratingLine}>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.ratingLabel}>
-              {category}
-            </ThemedText>
-            {[1, 2, 3, 4, 5].map((score) => (
-              <Pressable key={score} onPress={() => handleRate(category, score)} hitSlop={6}>
-                <ThemedText type="default">{score <= ratings[category] ? '★' : '☆'}</ThemedText>
-              </Pressable>
-            ))}
-          </View>
-        ))}
-      </View>
-
       <ThemedText type="small" themeColor="textSecondary">
-        자동으로 저장됩니다.
+        자동으로 저장됩니다. 코스 평가는 이 코스로 러닝을 완료한 뒤 결과 화면에서 남길 수 있어요.
       </ThemedText>
 
       <Button
@@ -413,16 +375,5 @@ const styles = StyleSheet.create({
   },
   error: {
     color: '#d64545',
-  },
-  ratingRow: {
-    gap: Spacing.one,
-  },
-  ratingLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  ratingLabel: {
-    width: 40,
   },
 });

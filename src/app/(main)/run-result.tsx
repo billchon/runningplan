@@ -1,7 +1,7 @@
 import { NaverMapPolylineOverlay, NaverMapView } from '@mj-studio/react-native-naver-map';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Screen } from '@/components/screen';
@@ -20,6 +20,9 @@ const SEGMENT_COLORS: Record<RunSegment['speedCategory'], string> = {
   slow: '#e74c3c',
 };
 
+const ratingCategories = ['경관', '안전', '평탄'] as const;
+type RatingCategory = (typeof ratingCategories)[number];
+
 export default function RunResultScreen() {
   const { courseId, trackedPath, plannedPath, distanceMeters, durationSeconds, reset } =
     useRunResultDraftStore();
@@ -27,6 +30,11 @@ export default function RunResultScreen() {
   const [segments, setSegments] = useState<RunSegment[]>([]);
   const [completionRate, setCompletionRate] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [ratings, setRatings] = useState<Record<RatingCategory, number>>({
+    경관: 0,
+    안전: 0,
+    평탄: 0,
+  });
   const hasSavedRef = useRef(false);
 
   useEffect(() => {
@@ -77,6 +85,14 @@ export default function RunResultScreen() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once with whatever the draft store had at mount time
   }, []);
+
+  const handleRate = async (category: RatingCategory, score: number) => {
+    setRatings((prev) => ({ ...prev, [category]: score }));
+    if (!courseId) return;
+    await supabase
+      .from('course_ratings')
+      .upsert({ course_id: courseId, category, score }, { onConflict: 'course_id,category' });
+  };
 
   const avgPaceLabel =
     distanceMeters > 0
@@ -130,6 +146,26 @@ export default function RunResultScreen() {
         </ThemedText>
       </View>
 
+      {courseId && (
+        <View style={styles.ratingRow}>
+          <ThemedText type="small" themeColor="textSecondary">
+            이 코스는 어땠나요?
+          </ThemedText>
+          {ratingCategories.map((category) => (
+            <View key={category} style={styles.ratingLine}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.ratingLabel}>
+                {category}
+              </ThemedText>
+              {[1, 2, 3, 4, 5].map((score) => (
+                <Pressable key={score} onPress={() => handleRate(category, score)} hitSlop={6}>
+                  <ThemedText type="default">{score <= ratings[category] ? '★' : '☆'}</ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          ))}
+        </View>
+      )}
+
       <Button
         label="홈으로"
         onPress={() => {
@@ -155,5 +191,16 @@ const styles = StyleSheet.create({
   },
   legend: {
     marginTop: -Spacing.two,
+  },
+  ratingRow: {
+    gap: Spacing.one,
+  },
+  ratingLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  ratingLabel: {
+    width: 40,
   },
 });
