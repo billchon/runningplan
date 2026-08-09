@@ -1,4 +1,9 @@
-import { NaverMapMarkerOverlay, NaverMapPolylineOverlay, NaverMapView } from '@mj-studio/react-native-naver-map';
+import {
+  NaverMapMarkerOverlay,
+  NaverMapPolylineOverlay,
+  NaverMapView,
+  type NaverMapViewRef,
+} from '@mj-studio/react-native-naver-map';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -32,14 +37,20 @@ export default function RunTrackingScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const distanceRef = useRef(0);
   const guideRef = useRef<VoiceGuide | null>(null);
+  const mapRef = useRef<NaverMapViewRef>(null);
 
   // Re-derive the planned road route from the course's saved waypoints, if a course was picked.
+  // The map already mounted centered on SEOUL_CITY_HALL (this only resolves after mount), so
+  // `initialCamera` can't pick it up - animate there explicitly once it's in.
   useEffect(() => {
     if (!courseId) return;
     loadCoursePlan(courseId)
       .then((plan) => {
         setPlannedPath(plan.path);
         setTurnPoints(plan.turnPoints);
+        if (plan.path.length > 0) {
+          mapRef.current?.animateCameraTo({ ...plan.path[0], zoom: 16 });
+        }
       })
       .catch(() => {});
   }, [courseId]);
@@ -83,6 +94,8 @@ export default function RunTrackingScreen() {
 
           const elapsed = Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000);
           guideRef.current?.update(point, distanceRef.current, elapsed);
+
+          mapRef.current?.animateCameraTo({ latitude: point.latitude, longitude: point.longitude, zoom: 16 });
         },
       );
       if (!subscribed) {
@@ -131,7 +144,7 @@ export default function RunTrackingScreen() {
   return (
     <Screen title={courseName ? `러닝 중 · ${courseName}` : '러닝 중 (자유 러닝)'}>
       <View style={styles.mapWrapper}>
-        <NaverMapView style={styles.map} initialCamera={{ ...mapCenter, zoom: 16 }}>
+        <NaverMapView ref={mapRef} style={styles.map} initialCamera={{ ...mapCenter, zoom: 16 }}>
           {plannedPath.length > 1 && (
             <NaverMapPolylineOverlay coords={plannedPath} color="#c0c0c0" width={4} />
           )}
