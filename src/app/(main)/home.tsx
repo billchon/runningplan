@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Screen } from '@/components/screen';
@@ -125,7 +125,14 @@ export default function HomeScreen() {
         )}
         {myCourses.map((course) => (
           <ThemedView key={course.id} type="backgroundElement" style={styles.courseRow}>
-            <ThemedText>{course.name}</ThemedText>
+            <Pressable
+              style={styles.courseNameArea}
+              onPress={() =>
+                router.push({ pathname: '/(main)/course-info', params: { courseId: course.id } })
+              }
+            >
+              <ThemedText>{course.name}</ThemedText>
+            </Pressable>
             <Button label="시작" onPress={() => startRun(course)} />
           </ThemedView>
         ))}
@@ -140,7 +147,14 @@ export default function HomeScreen() {
         )}
         {favoriteCourses.map((course) => (
           <ThemedView key={course.id} type="backgroundElement" style={styles.courseRow}>
-            <ThemedText>{course.name}</ThemedText>
+            <Pressable
+              style={styles.courseNameArea}
+              onPress={() =>
+                router.push({ pathname: '/(main)/course-info', params: { courseId: course.id } })
+              }
+            >
+              <ThemedText>{course.name}</ThemedText>
+            </Pressable>
             <Button label="시작" onPress={() => startRun(course)} />
           </ThemedView>
         ))}
@@ -183,5 +197,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  courseNameArea: {
+    flex: 1,
   },
 });
