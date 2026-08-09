@@ -67,6 +67,7 @@ export default function RunResultScreen() {
           distance_m: distanceMeters,
           duration_sec: durationSeconds,
           completion_rate: rate,
+          path: trackedPath.map((p) => ({ lat: p.latitude, lng: p.longitude })),
         })
         .select('id')
         .single();

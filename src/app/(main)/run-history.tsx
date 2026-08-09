@@ -1,11 +1,13 @@
+import { NaverMapPolylineOverlay, NaverMapView } from '@mj-studio/react-native-naver-map';
 import { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import type { Coord } from '@/lib/geo';
 import { supabase } from '@/lib/supabase';
 
 const SPEED_LABEL: Record<string, string> = { fast: '빠름', normal: '보통', slow: '느림' };
@@ -24,6 +26,7 @@ interface RunRow {
   completionRate: number | null;
   createdAt: string;
   segments: RunSegmentRow[];
+  path: Coord[];
 }
 
 function formatDate(iso: string) {
@@ -44,7 +47,9 @@ export default function RunHistoryScreen() {
   const load = () => {
     supabase
       .from('runs')
-      .select('id, distance_m, duration_sec, completion_rate, created_at, courses(name), run_segments(km_index, pace, speed_category)')
+      .select(
+        'id, distance_m, duration_sec, completion_rate, created_at, path, courses(name), run_segments(km_index, pace, speed_category)',
+      )
       .order('created_at', { ascending: false })
       .then(({ data, error: fetchError }) => {
         if (fetchError) {
@@ -60,6 +65,10 @@ export default function RunHistoryScreen() {
             completionRate: row.completion_rate,
             createdAt: row.created_at,
             segments: (row.run_segments ?? []).sort((a: RunSegmentRow, b: RunSegmentRow) => a.km_index - b.km_index),
+            path: (row.path ?? []).map((p: { lat: number; lng: number }) => ({
+              latitude: p.lat,
+              longitude: p.lng,
+            })),
           })),
         );
       });
@@ -92,6 +101,21 @@ export default function RunHistoryScreen() {
 
         return (
           <ThemedView key={run.id} type="backgroundElement" style={styles.row}>
+            {run.path.length > 1 && (
+              <View style={styles.mapWrapper}>
+                <NaverMapView
+                  style={styles.map}
+                  initialCamera={{ ...run.path[0], zoom: 14 }}
+                  isScrollGesturesEnabled={false}
+                  isZoomGesturesEnabled={false}
+                  isRotateGesturesEnabled={false}
+                  isTiltGesturesEnabled={false}
+                >
+                  <NaverMapPolylineOverlay coords={run.path} color="#3c87f7" width={4} />
+                </NaverMapView>
+              </View>
+            )}
+
             <ThemedText type="smallBold">
               {run.courseName} · {formatDate(run.createdAt)}
             </ThemedText>
@@ -126,6 +150,15 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     padding: Spacing.three,
     gap: Spacing.one,
+  },
+  mapWrapper: {
+    height: 140,
+    borderRadius: Spacing.two,
+    overflow: 'hidden',
+    marginBottom: Spacing.one,
+  },
+  map: {
+    flex: 1,
   },
   error: {
     color: '#d64545',
