@@ -24,6 +24,10 @@ interface Waypoint {
 }
 
 const SEOUL_CITY_HALL: Waypoint = { latitude: 37.5665, longitude: 126.978 };
+// Matches course-info's WAYPOINT_MARKER_SIZE: without an explicit width/height the SDK
+// renders an oversized default marker, which makes closely-placed waypoints overlap and
+// hard to tap individually (also looks inconsistent with the course-info preview map).
+const WAYPOINT_MARKER_SIZE = 24;
 
 export default function CourseBuilderScreen() {
   const theme = useTheme();
@@ -207,6 +211,8 @@ export default function CourseBuilderScreen() {
               latitude={point.latitude}
               longitude={point.longitude}
               anchor={{ x: 0.5, y: 1 }}
+              width={WAYPOINT_MARKER_SIZE}
+              height={WAYPOINT_MARKER_SIZE}
               caption={{ text: `${index + 1}` }}
               image={{ symbol: selectedIndex === index ? 'red' : 'green' }}
               onTap={() => handleMarkerTap(index)}

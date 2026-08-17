@@ -221,7 +221,12 @@ export default function RunResultScreen() {
         </ThemedText>
       </View>
 
-      <Pressable onPress={handleToggleFavorite} disabled={isSavingFavorite} style={styles.favoriteRow}>
+      <Pressable
+        onPress={handleToggleFavorite}
+        disabled={isSavingFavorite}
+        style={styles.favoriteRow}
+        hitSlop={Spacing.three}
+      >
         <ThemedText>
           {isFavorite ? '★ 즐겨찾기 됨' : '☆ 즐겨찾기에 추가'}
           {!activeCourseId ? ' (이 경로를 코스로 저장)' : ''}

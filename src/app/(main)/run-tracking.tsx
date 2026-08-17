@@ -7,7 +7,7 @@ import {
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Screen } from '@/components/screen';
@@ -132,6 +132,16 @@ export default function RunTrackingScreen() {
     router.replace('/(main)/run-result');
   };
 
+  // Ending a run is irreversible (stops GPS + voice guide and hands off to the result
+  // screen) and the "러닝 종료" button sits right where an arm swing or pocket brush can
+  // land while moving - confirm before committing to it.
+  const confirmEnd = () => {
+    Alert.alert('러닝을 종료할까요?', '지금까지의 기록이 저장됩니다.', [
+      { text: '계속 달리기', style: 'cancel' },
+      { text: '종료', style: 'destructive', onPress: handleEnd },
+    ]);
+  };
+
   const paceLabel =
     distanceMeters > 0
       ? `${(elapsedSeconds / 60 / (distanceMeters / 1000)).toFixed(1)}'/km`
@@ -167,14 +177,28 @@ export default function RunTrackingScreen() {
         </ThemedText>
       )}
 
-      <ThemedText>거리: {(distanceMeters / 1000).toFixed(2)} km</ThemedText>
-      <ThemedText>
-        시간: {minutes}:{seconds}
+      <View style={styles.statsRow}>
+        <View style={styles.statBlock}>
+          <ThemedText type="small" themeColor="textSecondary">
+            거리
+          </ThemedText>
+          <ThemedText type="subtitle">{(distanceMeters / 1000).toFixed(2)} km</ThemedText>
+        </View>
+        <View style={styles.statBlock}>
+          <ThemedText type="small" themeColor="textSecondary">
+            시간
+          </ThemedText>
+          <ThemedText type="subtitle">
+            {minutes}:{seconds}
+          </ThemedText>
+        </View>
+      </View>
+      <ThemedText type="smallBold" themeColor="textSecondary">
+        페이스 {paceLabel}
       </ThemedText>
-      <ThemedText>페이스: {paceLabel}</ThemedText>
       {plannedPath.length > 0 && <ThemedText themeColor="textSecondary">계획된 코스를 따라가는 중</ThemedText>}
 
-      <Button label="러닝 종료" onPress={handleEnd} />
+      <Button label="러닝 종료" onPress={confirmEnd} />
     </Screen>
   );
 }
@@ -190,5 +214,12 @@ const styles = StyleSheet.create({
   },
   error: {
     color: '#d64545',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: Spacing.five,
+  },
+  statBlock: {
+    gap: Spacing.half,
   },
 });
