@@ -17,6 +17,32 @@ import { reverseGeocode } from '@/lib/tmap';
 import { useCourseDraftStore } from '@/store/course-draft-store';
 
 const KM_SEGMENT_COLORS = ['#3c87f7', '#8fb8f6'];
+// Waypoint markers previously had no explicit width/height, which the SDK renders as an
+// oversized native asset that hid the safety-layer icons underneath - both now share one size.
+const WAYPOINT_MARKER_SIZE = 24;
+// Safety-layer markers must draw above waypoint markers (same zIndex group) so an overlapping
+// waypoint can't hide a tappable safety icon underneath it.
+const WAYPOINT_Z_INDEX = 0;
+const SAFETY_POI_Z_INDEX = 1;
+
+function poiEmoji(poi: Pick<SafetyPoi, 'kind' | 'hasSignal'>) {
+  switch (poi.kind) {
+    case 'bus_stop':
+      return '🚌';
+    case 'subway':
+      return '🚇';
+    default:
+      return poi.hasSignal ? '🚦' : '🚸';
+  }
+}
+
+// Crossings are almost never named in OSM (they're just a point on a road), unlike bus stops
+// and subway stations which reliably have one - so "이름 없음" would show on nearly every
+// crossing tap. A crossing without a name is still identifiable as "a crossing".
+function poiTitle(poi: Pick<SafetyPoi, 'kind' | 'name'>) {
+  if (poi.name) return poi.name;
+  return poi.kind === 'crossing' ? '횡단보도' : '이름 없음';
+}
 
 export default function CourseInfoScreen() {
   const theme = useTheme();
@@ -35,6 +61,7 @@ export default function CourseInfoScreen() {
   const [safetyPois, setSafetyPois] = useState<SafetyPoi[] | null>(null);
   const [safetyLoading, setSafetyLoading] = useState(false);
   const [safetyError, setSafetyError] = useState<string | null>(null);
+  const [selectedPoi, setSelectedPoi] = useState<SafetyPoi | null>(null);
 
   // Edit-mode-only: course data loaded from Supabase for an existing course, as opposed to
   // a freshly-drafted one handed off from course-builder via the store.
@@ -125,7 +152,9 @@ export default function CourseInfoScreen() {
 
       setCourseId(course.id);
 
-      await supabase.from('course_waypoints').insert(
+      // Without waypoints the course row is unusable (no route to show or re-run), so unlike
+      // the location-tag insert below this one must surface a failure instead of failing quietly.
+      const { error: waypointsError } = await supabase.from('course_waypoints').insert(
         waypoints.map((point, seq) => ({
           course_id: course.id,
           seq,
@@ -133,6 +162,11 @@ export default function CourseInfoScreen() {
           lng: point.longitude,
         })),
       );
+      if (cancelled) return;
+      if (waypointsError) {
+        setError('경로 저장에 실패했습니다. 코스를 다시 만들어주세요.');
+        return;
+      }
 
       const [startLabel, endLabel] = await Promise.all([
         reverseGeocode(start),
@@ -179,9 +213,31 @@ export default function CourseInfoScreen() {
     return () => clearTimeout(timeout);
   }, [name, memo, courseId]);
 
+  const safetyPoiMarkers = useMemo(
+    () =>
+      safetyPois?.map((poi) => (
+        <NaverMapMarkerOverlay
+          key={poi.id}
+          latitude={poi.latitude}
+          longitude={poi.longitude}
+          width={WAYPOINT_MARKER_SIZE}
+          height={WAYPOINT_MARKER_SIZE}
+          zIndex={SAFETY_POI_Z_INDEX}
+          caption={{
+            text: poiEmoji(poi),
+            textSize: 14,
+            align: 'Center',
+          }}
+          onTap={() => setSelectedPoi(poi)}
+        />
+      )),
+    [safetyPois],
+  );
+
   const handleToggleSafetyLayer = async () => {
     if (showSafetyLayer) {
       setShowSafetyLayer(false);
+      setSelectedPoi(null);
       return;
     }
     setShowSafetyLayer(true);
@@ -261,32 +317,51 @@ export default function CourseInfoScreen() {
               latitude={point.latitude}
               longitude={point.longitude}
               anchor={{ x: 0.5, y: 1 }}
+              width={WAYPOINT_MARKER_SIZE}
+              height={WAYPOINT_MARKER_SIZE}
+              zIndex={WAYPOINT_Z_INDEX}
               caption={{ text: `${index + 1}` }}
             />
           ))}
-          {showSafetyLayer &&
-            safetyPois?.map((poi) => (
-              <NaverMapMarkerOverlay
-                key={poi.id}
-                latitude={poi.latitude}
-                longitude={poi.longitude}
-                width={20}
-                height={20}
-                caption={{
-                  text: poi.kind === 'bus_stop' ? '🚌' : poi.hasSignal ? '🚦' : '🚸',
-                  textSize: 14,
-                  align: 'Center',
-                }}
-              />
-            ))}
+          {showSafetyLayer && safetyPoiMarkers}
         </NaverMapView>
       </View>
 
-      <Pressable onPress={handleToggleSafetyLayer}>
+      <Pressable
+        onPress={handleToggleSafetyLayer}
+        style={styles.safetyToggle}
+        hitSlop={Spacing.two}
+      >
         <ThemedText type="small">
-          {showSafetyLayer ? '안전·편의 정보 숨기기' : '안전·편의 정보 보기 (버스정류소 · 횡단보도)'}
+          {showSafetyLayer
+            ? '안전·편의 정보 숨기기'
+            : '안전·편의 정보 보기 (버스정류소 · 횡단보도 · 지하철)'}
         </ThemedText>
       </Pressable>
+      {showSafetyLayer && selectedPoi && (
+        <View style={styles.poiCard}>
+          <ThemedText type="smallBold">
+            {poiEmoji(selectedPoi)} {poiTitle(selectedPoi)}
+          </ThemedText>
+          {selectedPoi.kind === 'bus_stop' && (
+            <>
+              <ThemedText type="small" themeColor="textSecondary">
+                정류장 번호: {selectedPoi.stopRef ?? '정보 없음'}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                경유 버스: {selectedPoi.routeRefs?.join(', ') ?? '정보 없음'}
+              </ThemedText>
+            </>
+          )}
+          {selectedPoi.kind === 'subway' && (
+            <ThemedText type="small" themeColor="textSecondary">
+              {selectedPoi.subwayLines?.length
+                ? `${selectedPoi.subwayLines.map((line) => `${line}호선`).join(', ')}`
+                : '호선 정보 없음'}
+            </ThemedText>
+          )}
+        </View>
+      )}
       {safetyLoading && (
         <ThemedText type="small" themeColor="textSecondary">
           주변 정보를 불러오는 중...
@@ -334,9 +409,17 @@ export default function CourseInfoScreen() {
         label="완료"
         onPress={async () => {
           // The name/memo debounce (800ms) may not have fired yet - flush it so a quick tap
-          // right after typing doesn't lose the edit.
+          // right after typing doesn't lose the edit. This flush's own failure used to be
+          // ignored too, silently discarding the edit while still navigating away as if saved.
           if (courseId) {
-            await supabase.from('courses').update({ name, memo }).eq('id', courseId);
+            const { error: updateError } = await supabase
+              .from('courses')
+              .update({ name, memo })
+              .eq('id', courseId);
+            if (updateError) {
+              setError('저장하지 못했습니다. 다시 시도해주세요.');
+              return;
+            }
           }
           if (!isEditMode) draft.reset();
           router.replace('/(main)/course-list');
@@ -354,6 +437,15 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  safetyToggle: {
+    paddingVertical: Spacing.two,
+  },
+  poiCard: {
+    borderRadius: Spacing.two,
+    padding: Spacing.two,
+    gap: 2,
+    backgroundColor: 'rgba(60, 135, 247, 0.08)',
   },
   input: {
     borderRadius: Spacing.two,
