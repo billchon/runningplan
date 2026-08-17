@@ -38,6 +38,13 @@ export default function RunTrackingScreen() {
   const distanceRef = useRef(0);
   const guideRef = useRef<VoiceGuide | null>(null);
   const mapRef = useRef<NaverMapViewRef>(null);
+  // handleEnd is passed into Alert.alert's button config, which freezes whatever closure was
+  // current the moment the confirm dialog opened - if the user hesitates a few seconds before
+  // tapping "종료", GPS/timer updates during that gap would otherwise be silently dropped from
+  // the saved run. Reading through refs instead keeps handleEnd's result correct regardless of
+  // how long the dialog stays open.
+  const trackedPathRef = useRef<TimedCoord[]>([]);
+  const elapsedSecondsRef = useRef(0);
 
   // Re-derive the planned road route from the course's saved waypoints, if a course was picked.
   // The map already mounted centered on SEOUL_CITY_HALL (this only resolves after mount), so
@@ -89,7 +96,9 @@ export default function RunTrackingScreen() {
               distanceRef.current += haversineMeters(prev[prev.length - 1], point);
               setDistanceMeters(distanceRef.current);
             }
-            return [...prev, point];
+            const next = [...prev, point];
+            trackedPathRef.current = next;
+            return next;
           });
 
           const elapsed = Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000);
@@ -105,7 +114,9 @@ export default function RunTrackingScreen() {
       subscriptionRef.current = subscription;
       startTimeRef.current = Date.now();
       timerRef.current = setInterval(() => {
-        setElapsedSeconds(Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000));
+        const elapsed = Math.floor((Date.now() - (startTimeRef.current ?? Date.now())) / 1000);
+        elapsedSecondsRef.current = elapsed;
+        setElapsedSeconds(elapsed);
       }, 1000);
     })();
 
@@ -124,10 +135,10 @@ export default function RunTrackingScreen() {
 
     setResultDraft({
       courseId: courseId ?? null,
-      trackedPath,
+      trackedPath: trackedPathRef.current,
       plannedPath,
-      distanceMeters,
-      durationSeconds: elapsedSeconds,
+      distanceMeters: distanceRef.current,
+      durationSeconds: elapsedSecondsRef.current,
     });
     router.replace('/(main)/run-result');
   };
